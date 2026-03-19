@@ -19,13 +19,33 @@
 
 ## Prerequisites
 
-- [Bun](https://bun.sh) (Node.js compatible)
+### Run the published CLI
+
+- [Node.js](https://nodejs.org/) 18+
 - [Python](https://www.python.org/) 3.10+
 - [uv](https://github.com/astral-sh/uv)
 - [pnpm](https://pnpm.io/)
 - [Docker](https://www.docker.com/) (required for infrastructure management)
 
+### Develop this repository
+
+- [Bun](https://bun.sh)
+
 ## Installation
+
+### Install with npm
+
+```bash
+npm install -g fba-cli
+```
+
+Then run:
+
+```bash
+fba-cli --help
+```
+
+### Develop from source
 
 ```bash
 # Clone the repository

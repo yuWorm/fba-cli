@@ -3,12 +3,34 @@
   "version": "0.1.0",
   "description": "CLI tool for creating, managing, and running fastapi-best-architecture projects",
   "type": "module",
+  "license": "MIT",
+  "homepage": "https://github.com/yuWorm/fba-cli#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yuWorm/fba-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yuWorm/fba-cli/issues"
+  },
   "bin": {
-    "fba-cli": "./src/index.ts"
+    "fba-cli": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "README.md",
+    "README_en.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
   },
   "scripts": {
     "dev": "bun run src/index.ts",
-    "start": "bun run src/index.ts"
+    "start": "bun run src/index.ts",
+    "build": "bun build ./src/index.ts --target node --outdir ./dist --format esm --splitting",
+    "typecheck": "bunx tsc --noEmit",
+    "prepublishOnly": "bun run typecheck && bun run build"
   },
   "devDependencies": {
     "@types/bun": "latest"

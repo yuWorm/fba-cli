@@ -19,13 +19,33 @@
 
 ## 环境要求
 
-- [Bun](https://bun.sh)（兼容 Node.js）
+### 运行已发布 CLI
+
+- [Node.js](https://nodejs.org/) 18+
 - [Python](https://www.python.org/) 3.10+
 - [uv](https://github.com/astral-sh/uv)
 - [pnpm](https://pnpm.io/)
 - [Docker](https://www.docker.com/)（基础设施管理需要）
 
+### 开发此仓库
+
+- [Bun](https://bun.sh)
+
 ## 安装
+
+### 使用 npm 安装
+
+```bash
+npm install -g fba-cli
+```
+
+安装后可直接运行：
+
+```bash
+fba-cli --help
+```
+
+### 从源码开发
 
 ```bash
 # 克隆仓库

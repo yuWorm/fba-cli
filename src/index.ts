@@ -1,9 +1,17 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 // index.ts — FBA CLI 入口：Commander 命令路由
+import { readFileSync } from 'fs'
+import { dirname, resolve } from 'path'
+import { fileURLToPath } from 'url'
 import { Command } from 'commander'
 import chalk from 'chalk'
 import { readGlobalConfig } from './lib/config.js'
 import { initI18nFromConfig, t } from './lib/i18n.js'
+
+const currentDir = dirname(fileURLToPath(import.meta.url))
+const packageJsonPath = resolve(currentDir, '..', 'package.json')
+const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf-8')) as { version?: string }
+const cliVersion = packageJson.version ?? '0.1.0'
 
 // 全局未捕获错误处理
 process.on('uncaughtException', (err) => {
@@ -25,7 +33,7 @@ const program = new Command()
 program
   .name('fba-cli')
   .description(t('cliDescription'))
-  .version('0.1.0')
+  .version(cliVersion)
   .option('-p, --project <dir>', t('optProject'))
   .option('--lang <lang>', t('optLang'))
 
