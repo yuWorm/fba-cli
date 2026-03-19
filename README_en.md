@@ -36,7 +36,7 @@
 ### Install with npm
 
 ```bash
-npm install -g fba-cli
+npm install -g @yuworm/fba-cli
 ```
 
 Then run:
