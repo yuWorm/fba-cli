@@ -1,0 +1,465 @@
+// create.ts — 项目创建完整流程
+import * as clack from "@clack/prompts";
+import chalk from "chalk";
+import { join } from "path";
+import { existsSync, mkdirSync, writeFileSync, rmSync } from "fs";
+import { t, setLanguage } from "../lib/i18n.js";
+import {
+  readGlobalConfig,
+  writeGlobalConfig,
+  isFirstRun,
+  addProject,
+  writeProjectConfig,
+} from "../lib/config.js";
+import { checkEnvironment, getMissingTools } from "../lib/env-check.js";
+import { installTool } from "../lib/env-install.js";
+import { gitClone } from "../lib/git.js";
+import { isDockerAvailable, composeUp, composeDown } from "../lib/docker.js";
+import {
+  createInfraDir,
+  DEFAULT_INFRA_CONFIG,
+  type InfraConfig,
+} from "../lib/infra.js";
+import {
+  getDefaultBackendEnv,
+  serializeBackendEnv,
+} from "../templates/backend.env.js";
+import { run, runInherited } from "../lib/process.js";
+import type { ProjectConfig } from "../types/config.js";
+
+const BACKEND_REPO =
+  "https://github.com/fastapi-practices/fastapi-best-architecture.git";
+const FRONTEND_REPO =
+  "https://github.com/fastapi-practices/fastapi-best-architecture-ui.git";
+
+const LOGO = `
+  ███████╗██████╗  █████╗ 
+  ██╔════╝██╔══██╗██╔══██╗
+  █████╗  ██████╔╝███████║
+  ██╔══╝  ██╔══██╗██╔══██║
+  ██║     ██████╔╝██║  ██║
+  ╚═╝     ╚═════╝ ╚═╝  ╚═╝
+`;
+
+// ─── 回退机制 ───
+let _cleanupDir: string | null = null;
+let _infraDir: string | null = null;
+
+async function cleanup() {
+  if (!_cleanupDir) return;
+  console.log(chalk.yellow(`\n\n  ⟲ Rolling back: removing ${_cleanupDir}`));
+
+  // 先尝试停止 docker compose
+  if (_infraDir && existsSync(_infraDir)) {
+    try {
+      await composeDown(_infraDir, "Stopping infrastructure");
+    } catch {
+      // ignore
+    }
+  }
+
+  // 删除项目目录
+  try {
+    rmSync(_cleanupDir, { recursive: true, force: true });
+    console.log(chalk.green("  ✓ Cleanup complete.\n"));
+  } catch (e: any) {
+    console.error(chalk.red(`  ✗ Cleanup failed: ${e.message}`));
+    console.error(chalk.dim(`    Please manually remove: ${_cleanupDir}\n`));
+  }
+
+  _cleanupDir = null;
+  _infraDir = null;
+}
+
+function onCancel(): never {
+  cleanup().then(() => process.exit(0));
+  // 同步退出保底
+  process.exit(0);
+}
+
+export async function createAction() {
+  // ─── 注册 SIGINT 清理 ───
+  const sigintHandler = () => {
+    cleanup().then(() => process.exit(130));
+  };
+  process.on("SIGINT", sigintHandler);
+
+  try {
+    await _createFlow();
+  } catch (e: any) {
+    // 非正常退出（非用户取消）回退
+    if (_cleanupDir) {
+      console.error(chalk.red(`\n  ✗ Error: ${e.message}`));
+      await cleanup();
+    }
+    process.exit(1);
+  } finally {
+    // 创建成功后移除 handler，不再需要清理
+    process.removeListener("SIGINT", sigintHandler);
+    _cleanupDir = null;
+    _infraDir = null;
+  }
+}
+
+async function _createFlow() {
+  // ─── 欢迎 & 语言 ───
+  console.log(chalk.cyan(LOGO));
+  clack.intro(chalk.bgCyan(" FBA CLI "));
+
+  // 首次使用选择语言
+  if (isFirstRun()) {
+    const lang = await clack.select({
+      message: "Select language / 选择语言",
+      options: [
+        { value: "zh", label: "中文" },
+        { value: "en", label: "English" },
+      ],
+    });
+    if (clack.isCancel(lang)) onCancel();
+    setLanguage(lang as "zh" | "en");
+    const config = readGlobalConfig();
+    config.language = lang as "zh" | "en";
+    writeGlobalConfig(config);
+  }
+
+  clack.log.info(chalk.bold(t("welcome")));
+
+  // ─── 环境检测 ───
+  const envSpinner = clack.spinner();
+  envSpinner.start(t("envChecking"));
+  const envSummary = await checkEnvironment();
+  envSpinner.stop(t("envChecking"));
+
+  // 输出检测结果
+  for (const [, check] of Object.entries(envSummary)) {
+    const status = check.found
+      ? chalk.green(`✓ ${check.name} ${check.version ?? ""}`)
+      : chalk.red(`✗ ${check.name} ${t("envNotFound")}`);
+    clack.log.info(status);
+  }
+
+  // 处理缺失工具
+  const missing = getMissingTools(envSummary);
+  if (missing.length > 0) {
+    const shouldInstall = await clack.confirm({ message: t("envMissing") });
+    if (clack.isCancel(shouldInstall)) onCancel();
+
+    if (shouldInstall) {
+      const toInstall = await clack.multiselect({
+        message: t("envSelectInstall"),
+        options: missing.map((m) => ({ value: m.command, label: m.name })),
+        initialValues: missing.map((m) => m.command),
+      });
+      if (clack.isCancel(toInstall)) onCancel();
+
+      for (const cmd of toInstall) {
+        const tool = missing.find((m) => m.command === cmd);
+        if (tool) {
+          const ok = await installTool(tool);
+          clack.log.info(
+            ok
+              ? chalk.green(`✓ ${tool.name} ${t("envInstallSuccess")}`)
+              : chalk.red(`✗ ${tool.name} ${t("envInstallFail")}`),
+          );
+        }
+      }
+    }
+  }
+
+  // ─── 项目配置 ───
+  const projectConfig = await clack.group(
+    {
+      projectName: () =>
+        clack.text({
+          message: t("projectName"),
+          placeholder: "my-fba-project",
+          validate: (v) => (!v?.trim() ? t("projectNameRequired") : undefined),
+        }),
+      frontendName: () =>
+        clack.text({
+          message: t("frontendName"),
+          placeholder: "fastapi-best-architecture-ui",
+          defaultValue: "fastapi-best-architecture-ui",
+        }),
+      backendName: () =>
+        clack.text({
+          message: t("backendName"),
+          placeholder: "fastapi-best-architecture",
+          defaultValue: "fastapi-best-architecture",
+        }),
+    },
+    {
+      onCancel: () => onCancel(),
+    },
+  );
+
+  const projectDir = join(process.cwd(), projectConfig.projectName);
+
+  // 创建项目目录 → 从此刻起需要回退
+  if (!existsSync(projectDir)) {
+    mkdirSync(projectDir, { recursive: true });
+  }
+  _cleanupDir = projectDir;
+
+  // ─── 仓库克隆 ───
+  clack.log.step(t("cloningRepos"));
+
+  const backendDir = join(projectDir, projectConfig.backendName);
+  const frontendDir = join(projectDir, projectConfig.frontendName);
+
+  const backendCloned = await gitClone(BACKEND_REPO, backendDir, {
+    label: `Backend → ${projectConfig.backendName}`,
+  });
+  const frontendCloned = await gitClone(FRONTEND_REPO, frontendDir, {
+    label: `Frontend → ${projectConfig.frontendName}`,
+  });
+
+  if (!backendCloned || !frontendCloned) {
+    clack.log.error(chalk.red(t("cloneFail")));
+    if (!backendCloned)
+      clack.log.info(`  git clone ${BACKEND_REPO} ${backendDir}`);
+    if (!frontendCloned)
+      clack.log.info(`  git clone ${FRONTEND_REPO} ${frontendDir}`);
+    await cleanup();
+    return process.exit(1);
+  }
+  clack.log.success(t("cloneSuccess"));
+
+  // ─── 基础设施 ───
+  const infraServices = await clack.multiselect({
+    message: t("infraSelect"),
+    options: [
+      { value: "postgres", label: t("infraPostgres"), hint: "Database" },
+      { value: "redis", label: t("infraRedis"), hint: "Cache" },
+      { value: "rabbitmq", label: t("infraRabbitmq"), hint: "Message Queue" },
+    ],
+    initialValues: ["postgres", "redis", "rabbitmq"],
+    required: false,
+  });
+  if (clack.isCancel(infraServices)) onCancel();
+
+  let infraConfig: InfraConfig = { ...DEFAULT_INFRA_CONFIG };
+  let hasInfra = false;
+
+  if (infraServices.length > 0) {
+    // 检查 Docker
+    const dockerOk = await isDockerAvailable();
+    if (!dockerOk) {
+      clack.log.warn(chalk.yellow(t("infraDockerFail")));
+    } else {
+      // 收集基础设施配置
+      if (infraServices.includes("postgres")) {
+        const dbConfig = await clack.group(
+          {
+            dbHost: () =>
+              clack.text({ message: t("dbHost"), defaultValue: "127.0.0.1" }),
+            dbPort: () =>
+              clack.text({ message: t("dbPort"), defaultValue: "5432" }),
+            dbUser: () =>
+              clack.text({ message: t("dbUser"), defaultValue: "postgres" }),
+            dbPassword: () =>
+              clack.text({ message: t("dbPassword"), defaultValue: "123456" }),
+          },
+          { onCancel: () => onCancel() },
+        );
+        infraConfig.dbHost = dbConfig.dbHost;
+        infraConfig.dbPort = parseInt(dbConfig.dbPort);
+        infraConfig.dbUser = dbConfig.dbUser;
+        infraConfig.dbPassword = dbConfig.dbPassword;
+      }
+
+      if (infraServices.includes("redis")) {
+        const redisConfig = await clack.group(
+          {
+            redisHost: () =>
+              clack.text({
+                message: t("redisHost"),
+                defaultValue: "127.0.0.1",
+              }),
+            redisPort: () =>
+              clack.text({ message: t("redisPort"), defaultValue: "6379" }),
+            redisPassword: () =>
+              clack.text({ message: t("redisPassword"), defaultValue: "" }),
+          },
+          { onCancel: () => onCancel() },
+        );
+        infraConfig.redisHost = redisConfig.redisHost;
+        infraConfig.redisPort = parseInt(redisConfig.redisPort);
+        infraConfig.redisPassword = redisConfig.redisPassword;
+      }
+
+      if (infraServices.includes("rabbitmq")) {
+        const mqConfig = await clack.group(
+          {
+            mqHost: () =>
+              clack.text({ message: t("mqHost"), defaultValue: "127.0.0.1" }),
+            mqPort: () =>
+              clack.text({ message: t("mqPort"), defaultValue: "5672" }),
+            mqManagePort: () =>
+              clack.text({ message: t("mqManagePort"), defaultValue: "15672" }),
+            mqUser: () =>
+              clack.text({ message: t("mqUser"), defaultValue: "guest" }),
+            mqPassword: () =>
+              clack.text({ message: t("mqPassword"), defaultValue: "guest" }),
+          },
+          { onCancel: () => onCancel() },
+        );
+        infraConfig.mqHost = mqConfig.mqHost;
+        infraConfig.mqPort = parseInt(mqConfig.mqPort);
+        infraConfig.mqManagePort = parseInt(mqConfig.mqManagePort);
+        infraConfig.mqUser = mqConfig.mqUser;
+        infraConfig.mqPassword = mqConfig.mqPassword;
+      }
+
+      // 创建 infra 目录
+      createInfraDir(projectDir, infraServices, infraConfig);
+      _infraDir = join(projectDir, "infra");
+      hasInfra = true;
+      clack.log.success(`infra/ ✓`);
+    }
+  }
+
+  // ─── 后端 .env ───
+  const backendEnvConfig = getDefaultBackendEnv(infraConfig);
+
+  // 额外配置
+  const portConfig = await clack.group(
+    {
+      serverPort: () =>
+        clack.text({ message: t("serverPort"), defaultValue: "8000" }),
+      webPort: () =>
+        clack.text({ message: t("webPort"), defaultValue: "5173" }),
+    },
+    { onCancel: () => onCancel() },
+  );
+
+  const serverPort = parseInt(portConfig.serverPort);
+  const webPort = parseInt(portConfig.webPort);
+
+  // 写入后端 .env
+  const backendEnvPath = join(backendDir, "backend", ".env");
+  writeFileSync(backendEnvPath, serializeBackendEnv(backendEnvConfig), "utf-8");
+  clack.log.success(`backend/.env ✓`);
+
+  // 写入前端 .env.development
+  const frontendEnvPath = join(
+    frontendDir,
+    "apps",
+    "web-antdv-next",
+    ".env.development",
+  );
+  if (existsSync(join(frontendDir, "apps", "web-antdv-next"))) {
+    writeFileSync(
+      frontendEnvPath,
+      `VITE_GLOB_API_URL=http://127.0.0.1:${serverPort}\nVITE_PORT=${webPort}\n`,
+      "utf-8",
+    );
+    clack.log.success(`.env.development ✓`);
+  }
+
+  // ─── 写入项目配置 ───
+  const projConfig: ProjectConfig = {
+    name: projectConfig.projectName,
+    backend_name: projectConfig.backendName,
+    frontend_name: projectConfig.frontendName,
+    server_port: serverPort,
+    web_port: webPort,
+    infra: hasInfra,
+    infra_services: infraServices,
+  };
+  writeProjectConfig(projectDir, projConfig);
+
+  // ─── 初始化 ───
+  clack.log.step(t("initProject"));
+
+  // 1. 启动基础设施
+  if (hasInfra) {
+    const infraDir = join(projectDir, "infra");
+    const ok = await composeUp(infraDir, t("initInfra"));
+    if (!ok) {
+      clack.log.warn(chalk.yellow(`${t("initInfra")} ${t("initFailed")}`));
+    }
+  }
+
+  // 2. 前端依赖安装（可选）
+  const installFrontend = await clack.confirm({
+    message: `${t("initFrontend")}?`,
+  });
+  if (!clack.isCancel(installFrontend) && installFrontend) {
+    const result = await run("pnpm", ["install"], {
+      cwd: frontendDir,
+      spinner: true,
+      label: t("initFrontend"),
+    });
+    if (result.exitCode !== 0) {
+      clack.log.warn(
+        chalk.yellow(`${t("initFrontend")} ${t("initFailed")}: pnpm install`),
+      );
+    }
+  }
+
+  // 3. Python 环境（可选）
+  const initPython = await clack.confirm({ message: `${t("initPython")}?` });
+  if (!clack.isCancel(initPython) && initPython) {
+    // uv venv
+    let ok = await run("uv", ["venv"], {
+      cwd: backendDir,
+      spinner: true,
+      label: "uv venv",
+    });
+    if (ok.exitCode === 0) {
+      // uv sync
+      ok = await run("uv", ["sync"], {
+        cwd: backendDir,
+        spinner: true,
+        label: "uv sync",
+      });
+    }
+    if (ok.exitCode === 0) {
+      // uv run fba init (交互式，需要用户确认)
+      clack.log.step(t("initFba"));
+      const fbaInitExit = await runInherited(
+        "uv",
+        ["run", "fba", "init"],
+        backendDir,
+      );
+      ok = { stdout: "", stderr: "", exitCode: fbaInitExit };
+    }
+    if (ok.exitCode !== 0) {
+      clack.log.warn(chalk.yellow(`${t("initPython")} ${t("initFailed")}`));
+    }
+  }
+
+  // ─── 插件安装 ───
+  const installPlugins = await clack.confirm({
+    message: t("pluginInstallQuestion"),
+  });
+  if (!clack.isCancel(installPlugins) && installPlugins) {
+    // 延迟导入插件市场功能
+    const { pluginMarketFlow } = await import("./plugin/add.js");
+    await pluginMarketFlow(projectDir);
+  }
+
+  // ─── 注册项目 ───
+  addProject({
+    name: projectConfig.projectName,
+    path: projectDir,
+    createdAt: new Date().toISOString(),
+  });
+
+  // ─── 完成 ───
+  clack.log.success(chalk.green.bold(t("createSuccess")));
+  clack.note(
+    [
+      `cd ${projectConfig.projectName}`,
+      `fba dev          # ${t("initInfra")}`,
+      `fba dev:web      # ${t("initFrontend")}`,
+    ].join("\n"),
+    t("nextSteps"),
+  );
+  clack.outro(chalk.cyan("Happy coding! 🚀"));
+
+  // 创建成功，不再需要回退
+  _cleanupDir = null;
+  _infraDir = null;
+}

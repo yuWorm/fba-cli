@@ -1,0 +1,31 @@
+# 插件信息
+[plugin]
+# 图标（插件仓库内的图标路径或图标链接地址）
+icon = 'assets/icon.svg'
+# 摘要（简短描述）
+summary = ''
+# 版本号
+version = '0.0.1'
+# 描述
+description = ''
+# 作者
+author = ''
+# 插件类型
+type = 'server'
+# 标签
+# 当前支持：ai、mcp、agent、auth、storage、notification、task、payment、other
+tags = ['other']
+# 数据库支持
+# 当前支持：mysql、postgresql
+database = ['mysql', 'postgresql']
+
+# 应用配置
+[app]
+# 路由器最终实例
+# 可参考源码：backend/app/admin/api/router.py，通常默认命名为 v1
+router = ['v1']
+
+# 代码中的配置项（全大写）
+# 该配置项为可选，详情请查看：热插拔
+# [settings]
+# XXX = X

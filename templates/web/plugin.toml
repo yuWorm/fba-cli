@@ -1,0 +1,17 @@
+# 插件信息
+[plugin]
+# 图标（插件仓库内的图标路径或图标链接地址）
+icon = 'assets/icon.svg'
+# 摘要（简短描述）
+summary = ''
+# 版本号
+version = '0.0.1'
+# 描述
+description = ''
+# 作者
+author = ''
+# 插件类型
+type = 'web'
+# 标签
+# 当前支持：ai、mcp、agent、auth、storage、notification、task、payment、other
+tags = ['other']

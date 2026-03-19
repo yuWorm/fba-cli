@@ -1,0 +1,1 @@
+-- MySQL 雪花 id 模式初始化 SQL
