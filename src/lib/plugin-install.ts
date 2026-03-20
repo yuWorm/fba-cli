@@ -1,6 +1,6 @@
 // plugin-install.ts — 插件安装与管理逻辑
 import { existsSync, readdirSync, readFileSync } from 'fs'
-import { join } from 'path'
+import { join, basename } from 'path'
 import { parse as parseToml } from 'smol-toml'
 import { run } from './process.js'
 import { gitClone, removeGitDir } from './git.js'
@@ -128,7 +128,7 @@ export async function installFromMarket(
 
   // 安装前端插件
   for (const p of webPlugins) {
-    const name = p.git.path.split('/').pop() ?? p.plugin.summary
+    const name = basename(p.git.path) || p.plugin.summary
     const ok = await installFrontendPlugin(projectDir, p.git.url, name, p.git.branch)
     if (ok) success.push(name)
     else failed.push(name)
@@ -137,7 +137,7 @@ export async function installFromMarket(
   // 安装后端插件
   for (const p of serverPlugins) {
     const ok = await installBackendPlugin(projectDir, { repoUrl: p.git.url })
-    const name = p.git.path.split('/').pop() ?? p.plugin.summary
+    const name = basename(p.git.path) || p.plugin.summary
     if (ok) success.push(name)
     else failed.push(name)
   }

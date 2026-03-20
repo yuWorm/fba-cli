@@ -3,6 +3,7 @@ import * as clack from '@clack/prompts'
 import chalk from 'chalk'
 import { readGlobalConfig, writeGlobalConfig } from '../lib/config.js'
 import { setLanguage } from '../lib/i18n.js'
+import { getDefaultShell } from '../lib/platform.js'
 
 interface ConfigOption {
   key: string
@@ -38,11 +39,11 @@ export async function configSetAction() {
     {
       key: 'shell',
       label: 'Shell (fba go)',
-      current: () => config.shell ?? `env (${ process.env.SHELL ?? '/bin/sh'})`,
+      current: () => config.shell ?? `env (${getDefaultShell()})`,
       set: async () => {
         const shell = await clack.text({
           message: 'Shell path (留空使用环境默认)',
-          placeholder: process.env.SHELL ?? '/bin/zsh',
+          placeholder: getDefaultShell(),
           defaultValue: '',
         })
         if (clack.isCancel(shell)) return

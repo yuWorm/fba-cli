@@ -1,5 +1,6 @@
 // env-check.ts — 环境检测
 import { checkCommand } from './process.js'
+import { getPythonCommand } from './platform.js'
 import type { EnvCheckResult, EnvCheckSummary } from '../types/env.js'
 
 async function checkTool(
@@ -23,7 +24,7 @@ async function checkTool(
  */
 export async function checkEnvironment(): Promise<EnvCheckSummary> {
   const [python, uv, pnpm, npm, docker] = await Promise.all([
-    checkTool('Python', 'python3', ['--version'], true),
+    checkTool('Python', getPythonCommand(), ['--version'], true),
     checkTool('uv', 'uv', ['--version'], true),
     checkTool('pnpm', 'pnpm', ['--version'], true),
     checkTool('npm', 'npm', ['--version'], false),

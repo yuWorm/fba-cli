@@ -452,8 +452,8 @@ async function _createFlow() {
   clack.note(
     [
       `cd ${projectConfig.projectName}`,
-      `fba dev          # ${t("initInfra")}`,
-      `fba dev:web      # ${t("initFrontend")}`,
+      `fba-cli dev          # ${t("initInfra")}`,
+      `fba-cli dev:web      # ${t("initFrontend")}`,
     ].join("\n"),
     t("nextSteps"),
   );
