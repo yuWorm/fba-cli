@@ -21,6 +21,8 @@ const messages = {
     envInstallSuccess: "安装成功",
     envInstallFail: "安装失败",
     envSelectInstall: "选择要安装的工具",
+    envOptional: "可选",
+    envRequired: "必须",
     installingTool: "正在安装",
 
     // Create
@@ -272,6 +274,8 @@ const messages = {
     envInstallSuccess: "Installed successfully",
     envInstallFail: "Installation failed",
     envSelectInstall: "Select tools to install",
+    envOptional: "optional",
+    envRequired: "required",
     installingTool: "Installing",
 
     projectName: "Project name",
