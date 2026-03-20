@@ -30,6 +30,8 @@
     - 输入完毕后，创建infra目录
     - copy 或创建设施docker compose文件(基于选取的服务)，并写入前面的配置内容到.env
 - 然后是一些基本配置项目(postgres，redis如果上面进行了设置，则基础，不用输入)
+
+```shell
   # Database
   DATABASE_TYPE='postgresql'
   DATABASE_HOST='127.0.0.1'
@@ -51,6 +53,8 @@
   CELERY_RABBITMQ_PORT=5672
   CELERY_RABBITMQ_USERNAME='guest'
   CELERY_RABBITMQ_PASSWORD='guest'
+```
+
 - 将设置写入到.env
   - env在：项目目录/后端文件夹/backend/.env
 - 项目运行配置

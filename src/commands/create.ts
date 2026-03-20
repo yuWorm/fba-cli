@@ -28,6 +28,13 @@ import {
 } from "../templates/backend.env.js";
 import { run, runInherited } from "../lib/process.js";
 import type { ProjectConfig } from "../types/config.js";
+import {
+  NPM_REGISTRIES,
+  PYPI_REGISTRIES,
+  getRegistryLabel,
+  selectNpmRegistry,
+  selectPypiRegistry,
+} from "../lib/registry.js";
 
 const BACKEND_REPO =
   "https://github.com/fastapi-practices/fastapi-best-architecture.git";
@@ -148,6 +155,35 @@ async function _createFlow() {
   }
 
   clack.log.info(chalk.bold(t("welcome")));
+
+  // ─── 源选择（首次或未配置时引导） ───
+  {
+    const gCfg = readGlobalConfig();
+    let needWrite = false;
+
+    if (!gCfg.npmRegistry) {
+      clack.log.step(t('registrySetupTitle'));
+      const npmUrl = await selectNpmRegistry();
+      if (clack.isCancel(npmUrl)) onCancel();
+      gCfg.npmRegistry = npmUrl as string;
+      needWrite = true;
+    }
+
+    if (!gCfg.pypiRegistry) {
+      if (!needWrite) clack.log.step(t('registrySetupTitle'));
+      const pypiUrl = await selectPypiRegistry();
+      if (clack.isCancel(pypiUrl)) onCancel();
+      gCfg.pypiRegistry = pypiUrl as string;
+      needWrite = true;
+    }
+
+    if (needWrite) {
+      writeGlobalConfig(gCfg);
+      clack.log.success(
+        `npm: ${getRegistryLabel(NPM_REGISTRIES, gCfg.npmRegistry)}  |  PyPI: ${getRegistryLabel(PYPI_REGISTRIES, gCfg.pypiRegistry)}`
+      );
+    }
+  }
 
   // ─── 环境检测 ───
   const envSpinner = clack.spinner();
@@ -505,7 +541,12 @@ async function _createFlow() {
     initialValue: false,
   });
   if (!clack.isCancel(installFrontend) && installFrontend) {
-    const result = await run("pnpm", ["install"], {
+    const pnpmArgs = ["install"];
+    const gCfgPnpm = readGlobalConfig();
+    if (gCfgPnpm.npmRegistry && gCfgPnpm.npmRegistry !== 'https://registry.npmjs.org') {
+      pnpmArgs.push('--registry', gCfgPnpm.npmRegistry);
+    }
+    const result = await run("pnpm", pnpmArgs, {
       cwd: frontendDir,
       spinner: true,
       label: t("initFrontend"),
@@ -521,6 +562,11 @@ async function _createFlow() {
   let pythonReady = false;
   const initPython = await clack.confirm({ message: `${t("initPython")}?`, initialValue: false });
   if (!clack.isCancel(initPython) && initPython) {
+    const gCfgUv = readGlobalConfig();
+    const uvExtra: string[] = [];
+    if (gCfgUv.pypiRegistry && gCfgUv.pypiRegistry !== 'https://pypi.org/simple') {
+      uvExtra.push('--index-url', gCfgUv.pypiRegistry);
+    }
     // uv venv
     let ok = await run("uv", ["venv"], {
       cwd: backendDir,
@@ -529,7 +575,7 @@ async function _createFlow() {
     });
     if (ok.exitCode === 0) {
       // uv sync
-      ok = await run("uv", ["sync"], {
+      ok = await run("uv", ["sync", ...uvExtra], {
         cwd: backendDir,
         spinner: true,
         label: "uv sync",
