@@ -30,9 +30,12 @@ const messages = {
 
     // Infra
     infraSelect: '选择开发基础设施',
+    infraDatabase: '数据库 (PostgreSQL / MySQL)',
     infraPostgres: 'PostgreSQL',
+    infraMysql: 'MySQL',
     infraRedis: 'Redis',
     infraRabbitmq: 'RabbitMQ',
+    dbTypeSelect: '选择数据库类型',
     infraDockerCheck: '正在检查 Docker 环境...',
     infraDockerFail: 'Docker 不可用，跳过基础设施创建',
     infraCreating: '正在创建基础设施...',
@@ -170,9 +173,12 @@ const messages = {
     cloneFail: 'Clone failed',
 
     infraSelect: 'Select development infrastructure',
+    infraDatabase: 'Database (PostgreSQL / MySQL)',
     infraPostgres: 'PostgreSQL',
+    infraMysql: 'MySQL',
     infraRedis: 'Redis',
     infraRabbitmq: 'RabbitMQ',
+    dbTypeSelect: 'Select database type',
     infraDockerCheck: 'Checking Docker environment...',
     infraDockerFail: 'Docker is not available, skipping infrastructure creation',
     infraCreating: 'Creating infrastructure...',

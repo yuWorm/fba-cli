@@ -18,7 +18,9 @@ import { isDockerAvailable, composeUp, composeDown } from "../lib/docker.js";
 import {
   createInfraDir,
   DEFAULT_INFRA_CONFIG,
+  getDefaultsForDbType,
   type InfraConfig,
+  type DatabaseType,
 } from "../lib/infra.js";
 import {
   getDefaultBackendEnv,
@@ -230,28 +232,49 @@ async function _createFlow() {
   }
   clack.log.success(t("cloneSuccess"));
 
-  // ─── 基础设施（Docker 安装） ───
-  const infraServices = await clack.multiselect({
-    message: `${t("infraSelect")} ${chalk.dim(t("multiselectHint"))}`,
+  // ─── 数据库类型选择（始终需要，用于后端 .env 配置） ───
+  const dbTypeChoice = await clack.select({
+    message: t('dbTypeSelect'),
     options: [
-      { value: "postgres", label: t("infraPostgres"), hint: "Database" },
-      { value: "redis", label: t("infraRedis"), hint: "Cache" },
-      { value: "rabbitmq", label: t("infraRabbitmq"), hint: "Message Queue" },
+      { value: 'postgresql', label: t('infraPostgres') },
+      { value: 'mysql', label: t('infraMysql') },
     ],
-    initialValues: ["postgres", "redis", "rabbitmq"],
-    required: false,
   });
-  if (clack.isCancel(infraServices)) onCancel();
+  if (clack.isCancel(dbTypeChoice)) onCancel();
+  const selectedDbType: DatabaseType = dbTypeChoice as DatabaseType;
 
-  let infraConfig: InfraConfig = { ...DEFAULT_INFRA_CONFIG };
+  // ─── 基础设施（Docker 安装） ───
+  // 先检查 Docker 是否可用，不可用则跳过基础设施选择
+  const dockerOk = await isDockerAvailable();
+  let infraServices: string[] = [];
+  let infraConfig: InfraConfig = {
+    ...DEFAULT_INFRA_CONFIG,
+    ...getDefaultsForDbType(selectedDbType),
+  };
   let hasInfra = false;
 
-  if (infraServices.length > 0) {
-    // 检查 Docker
-    const dockerOk = await isDockerAvailable();
-    if (!dockerOk) {
-      clack.log.warn(chalk.yellow(t("infraDockerFail")));
-    } else {
+  if (!dockerOk) {
+    clack.log.warn(chalk.yellow(t("infraDockerFail")));
+  } else {
+    const infraSelection = await clack.multiselect({
+      message: `${t("infraSelect")} ${chalk.dim(t("multiselectHint"))}`,
+      options: [
+        { value: "database", label: selectedDbType === 'mysql' ? t("infraMysql") : t("infraPostgres"), hint: "Database" },
+        { value: "redis", label: t("infraRedis"), hint: "Cache" },
+        { value: "rabbitmq", label: t("infraRabbitmq"), hint: "Message Queue" },
+      ],
+      initialValues: ["database", "redis", "rabbitmq"],
+      required: false,
+    });
+    if (clack.isCancel(infraSelection)) onCancel();
+
+    // 将 'database' 替换为实际的服务名 ('postgres' | 'mysql')
+    infraServices = infraSelection.map((s: string) => {
+      if (s === 'database') return selectedDbType === 'mysql' ? 'mysql' : 'postgres';
+      return s;
+    });
+
+    if (infraServices.length > 0) {
       // 创建 infra 目录（使用默认配置）
       createInfraDir(projectDir, infraServices, infraConfig);
       _infraDir = join(projectDir, "infra");
@@ -264,32 +287,33 @@ async function _createFlow() {
   clack.log.step(t("envConfigTitle"));
 
   // 辅助：根据服务是否由 Docker 管理生成 hint
+  const dbServiceName = selectedDbType === 'mysql' ? 'mysql' : 'postgres';
   const hint = (service: string) =>
     infraServices.includes(service)
       ? chalk.dim(t("envConfigHintDocker"))
       : chalk.dim(t("envConfigHintExternal"));
 
-  // PostgreSQL 连接配置
+  // 数据库连接配置
   const dbConfig = await clack.group(
     {
       dbHost: () =>
         clack.text({
-          message: `${t("dbHost")} ${hint("postgres")}`,
+          message: `${t("dbHost")} ${hint(dbServiceName)}`,
           defaultValue: infraConfig.dbHost,
         }),
       dbPort: () =>
         clack.text({
-          message: `${t("dbPort")} ${hint("postgres")}`,
+          message: `${t("dbPort")} ${hint(dbServiceName)}`,
           defaultValue: String(infraConfig.dbPort),
         }),
       dbUser: () =>
         clack.text({
-          message: `${t("dbUser")} ${hint("postgres")}`,
+          message: `${t("dbUser")} ${hint(dbServiceName)}`,
           defaultValue: infraConfig.dbUser,
         }),
       dbPassword: () =>
         clack.text({
-          message: `${t("dbPassword")} ${hint("postgres")}`,
+          message: `${t("dbPassword")} ${hint(dbServiceName)}`,
           defaultValue: infraConfig.dbPassword,
         }),
     },
@@ -368,7 +392,7 @@ async function _createFlow() {
   }
 
   // ─── 后端 .env ───
-  const backendEnvConfig = getDefaultBackendEnv(infraConfig);
+  const backendEnvConfig = getDefaultBackendEnv(infraConfig, selectedDbType);
 
   // 额外配置
   const portConfig = await clack.group(
@@ -414,6 +438,7 @@ async function _createFlow() {
     web_port: webPort,
     infra: hasInfra,
     infra_services: infraServices,
+    db_type: selectedDbType,
   };
   writeProjectConfig(projectDir, projConfig);
 

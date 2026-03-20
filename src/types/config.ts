@@ -1,4 +1,5 @@
 // 配置类型定义
+import type { DatabaseType } from '../lib/infra.js'
 
 export interface GlobalConfig {
   language: 'zh' | 'en'
@@ -21,6 +22,7 @@ export interface ProjectConfig {
   web_port: number
   infra: boolean
   infra_services: string[]
+  db_type?: DatabaseType
 }
 
 export const DEFAULT_GLOBAL_CONFIG: GlobalConfig = {

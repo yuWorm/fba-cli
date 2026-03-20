@@ -1,5 +1,5 @@
 // src/templates/backend.env.ts — 后端 .env 模板
-import type { InfraConfig } from "../lib/infra.js";
+import type { InfraConfig, DatabaseType } from "../lib/infra.js";
 import { randomBytes } from "crypto";
 
 export interface BackendEnvConfig {
@@ -27,13 +27,16 @@ export function generateTokenSecret(): string {
 
 export function getDefaultBackendEnv(
   infraConfig?: Partial<InfraConfig>,
+  dbType?: DatabaseType,
 ): BackendEnvConfig {
+  const resolvedDbType = dbType ?? infraConfig?.dbType ?? "postgresql";
+  const isMySQL = resolvedDbType === "mysql";
   return {
-    databaseType: "postgresql",
+    databaseType: resolvedDbType,
     databaseSchema: infraConfig?.dbName ?? "fba",
     dbHost: infraConfig?.dbHost ?? "127.0.0.1",
-    dbPort: infraConfig?.dbPort ?? 5432,
-    dbUser: infraConfig?.dbUser ?? "postgres",
+    dbPort: infraConfig?.dbPort ?? (isMySQL ? 3306 : 5432),
+    dbUser: infraConfig?.dbUser ?? (isMySQL ? "root" : "postgres"),
     dbPassword: infraConfig?.dbPassword ?? "123456",
     redisHost: infraConfig?.redisHost ?? "127.0.0.1",
     redisPort: infraConfig?.redisPort ?? 6379,
